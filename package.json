@@ -1,0 +1,19 @@
+{
+  "name": "remote-loader",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "time node -r ./dist/suppress-experimental-warnings.js --es-module-specifier-resolution=node --experimental-network-imports --loader=./dist/network-module-loader.js",
+    "build": "npx esbuild src/network-module-loader.ts src/suppress-experimental-warnings.ts --bundle --outdir=dist --format=cjs --platform=node"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^18.15.3"
+  },
+  "dependencies": {
+    "esbuild": "^0.17.11"
+  }
+}
