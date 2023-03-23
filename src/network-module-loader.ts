@@ -1,5 +1,5 @@
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
-import { join, dirname, resolve as _resolve, isAbsolute } from "path";
+import { join, dirname, resolve as _resolve } from "path";
 import { createHash } from "crypto";
 
 import { fetch } from "./fetch";
@@ -9,6 +9,7 @@ type ModuleFormat = "module";
 type Resolved = {
   url: string;
   format: ModuleFormat | undefined;
+  shortCircuit?: boolean;
 };
 
 type Context = {
@@ -31,6 +32,7 @@ function normalize(url) {
   );
 }
 
+// const cachedImportMap = new Map();
 const cacheForHead = new Map();
 // based 2.29s user 0.50s system 32% cpu 8.569 total
 // cached 1.33s user 0.28s system 20% cpu 8.012 total
@@ -39,54 +41,87 @@ const cacheForHead = new Map();
 //     return /^(?:@[a-z0-9-*~][a-z0-9-*._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(name);
 // }
 
-const isRelative = (name: string) => name.startsWith(".");
-const isUnpkg = (url?: string) => url?.startsWith("https://unpkg.com/");
-
 import { isBuiltin } from "module";
 
+import { imports, scopes } from "../package.json";
+
+const importMaps = Object.fromEntries(
+  [
+    [undefined, imports],
+    ...Object.entries(scopes || {}).map(([prefix, importMap]) => [
+      prefix,
+      { ...(imports || {}), ...(importMap || {}) },
+    ]),
+    ['', imports],
+  ]
+);
+
+console.log(importMaps);
+
+// https://packup.deno.dev/guides/registry-cdn/
+// https://generator.jspm.io/#62JgYGBkDM0rySzJSU1hqKpwMNcz0jMEAD0gdcgXAA
 export const resolve = async (
   specifier,
   context,
   defaultResolve
 ): Promise<Resolved> => {
+  console.debug("resolve", specifier, "from", context.parentURL);
+  
+  specifier = Object.entries(importMaps)
+    .filter(([prefix]) => ('' + context.parentURL).startsWith(prefix))?.[0]?.[1]?.[specifier] || specifier;
+  
+  // Ignore built-in module and clear the context object if an error of type
+  // ERR_NETWORK_IMPORT_DISALLOWED occurs, indicating that network requests are
+  // not allowed for dynamic module imports.
   if (specifier.startsWith("node:") || isBuiltin(specifier)) {
-    // ignore buildin module
     context.parentURL = undefined;
-  } else if (!isRelative(specifier) && isUnpkg(context?.parentURL)) {
-    if (specifier.startsWith("#")) {
-      // unpkg external module
-      specifier = specifier.substring(1);
-    }
-    specifier = "https://unpkg.com/" + specifier;
   }
-  const { url, ...rest } = await defaultResolve(
+
+  // Use the default resolver to handle relative paths.
+  const { url: resolvedURL, format } = await defaultResolve(
     specifier,
     context,
     defaultResolve
-  );
-  if (url.startsWith("https://")) {
-    if (cacheForHead.has(url)) {
-      return { ...cacheForHead.get(url), shortCircuit: true };
+  ).catch((e) => {
+    console.debug(`resolve failed, fallback to /${specifier}`);
+    return defaultResolve(`/${specifier}`, context, defaultResolve);
+  });
+
+  console.debug("default resolved", resolvedURL, "of", specifier);
+
+  // Now we have a remote module name with the protocol prefix https://,
+  // because using http:// is not a secure practice. Let it crash.
+  if (resolvedURL.startsWith("https://")) {
+    // To improve performance, it is recommended to use caching to minimize repeat requests.
+    if (cacheForHead.has(resolvedURL)) {
+      const { url, ...rest } = cacheForHead.get(resolvedURL);
+      console.debug("redirect to", url, "from cache of", resolvedURL);
+      return { url, ...rest };
     }
-    const resp = await fetch(new URL(url), { method: "head" });
-    if (resp.status === 200) {
-      // TODO: cache redirected urls
-      cacheForHead.set(url, { url: resp.url, specifier });
-      return { url: resp.url, specifier, shortCircuit: true } as any;
+
+    const { status, url } = await fetch(new URL(resolvedURL), {
+      method: "head",
+    });
+    if (status === 200) {
+      // update cache
+      cacheForHead.set(resolvedURL, { url, shortCircuit: true });
+      console.debug("redirect to", url, "from network of", resolvedURL);
+      return cacheForHead.get(resolvedURL);
     }
   }
-  return { url, ...rest };
+
+  return { url: resolvedURL, format };
 };
 
 export const load = async (url, context, defaultLoad) => {
-  console.log("load", url, context.parentURL);
+  console.debug("load", url, "of", context.parentURL);
   if (url.startsWith("https://")) {
     const cacheFileName = normalize(url);
     if (cacheFileName && existsSync(cacheFileName)) {
       const { format, responseURL } = JSON.parse(
         readFileSync(cacheFileName + ".meta.json", { encoding: "utf-8" })
       );
-      console.log("load", url, format, responseURL);
+      // console.log("load", url, format, responseURL);
       return {
         format,
         responseURL,
@@ -95,9 +130,15 @@ export const load = async (url, context, defaultLoad) => {
       };
     }
 
-    let { format, source } = await defaultLoad(url, context, defaultLoad);
+    let { format, source } = await defaultLoad(url, context, defaultLoad).catch(
+      (e) => console.log("defaultLoad", e)
+    );
     let responseURL: string | undefined = undefined;
-    if (!/export /.test(source) && !/export\{/.test(source) && !/import /.test(source)) {
+    if (
+      !/export /.test(source) &&
+      !/export\{/.test(source) &&
+      !/import /.test(source)
+    ) {
       format = "commonjs";
       responseURL =
         format === "commonjs" ? `file://${_resolve(cacheFileName)}` : undefined;
@@ -134,3 +175,19 @@ export const load = async (url, context, defaultLoad) => {
   }
   return defaultLoad(url, context, defaultLoad);
 };
+
+function importFromMap(specifier: string, context: Context) {
+  if (imports[specifier]) {
+    return imports[specifier];
+  }
+  if (context.parentURL) {
+    const [_, scopedImportsMap = []] =
+      Object.entries(scopes).filter(([prefix, _]) =>
+        context.parentURL.startsWith(prefix)
+      )[0] || [];
+    if (scopedImportsMap[specifier]) {
+      return scopedImportsMap[specifier];
+    }
+  }
+  return specifier;
+}
