@@ -3,6 +3,10 @@ import {
     Buffer
 } from 'buffer';
 
+import { getLogger } from "./logger";
+
+const fetchLogger = getLogger("[fetch]");
+
 const agent = new Agent({ keepAlive: true, timeout: 5e3 });
 
 /**

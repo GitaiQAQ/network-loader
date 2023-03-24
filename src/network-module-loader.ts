@@ -3,6 +3,10 @@ import { join, dirname, resolve as _resolve } from "path";
 import { createHash } from "crypto";
 
 import { fetch } from "./fetch";
+import { logger, getLogger } from "./logger";
+
+const resolverLogger = getLogger("[resolve]");
+const loaderLogger = getLogger("[load]");
 
 type ModuleFormat = "module";
 
@@ -45,18 +49,16 @@ import { isBuiltin } from "module";
 
 import { imports, scopes } from "../package.json";
 
-const importMaps = Object.fromEntries(
-  [
-    [undefined, imports],
-    ...Object.entries(scopes || {}).map(([prefix, importMap]) => [
-      prefix,
-      { ...(imports || {}), ...(importMap || {}) },
-    ]),
-    ['', imports],
-  ]
-);
+const importMaps = Object.fromEntries([
+  [undefined, imports],
+  ...Object.entries(scopes || {}).map(([prefix, importMap]) => [
+    prefix,
+    { ...(imports || {}), ...(importMap || {}) },
+  ]),
+  ["", imports],
+]);
 
-console.log(importMaps);
+logger.debug("buildin importMap", importMaps);
 
 // https://packup.deno.dev/guides/registry-cdn/
 // https://generator.jspm.io/#62JgYGBkDM0rySzJSU1hqKpwMNcz0jMEAD0gdcgXAA
@@ -65,15 +67,19 @@ export const resolve = async (
   context,
   defaultResolve
 ): Promise<Resolved> => {
-  console.debug("resolve", specifier, "from", context.parentURL);
-  
-  specifier = Object.entries(importMaps)
-    .filter(([prefix]) => ('' + context.parentURL).startsWith(prefix))?.[0]?.[1]?.[specifier] || specifier;
-  
+  resolverLogger.log("start resolve", specifier, "from", context.parentURL);
+
+  specifier =
+    Object.entries(importMaps).filter(([prefix]) =>
+      ("" + context.parentURL).startsWith(prefix)
+    )?.[0]?.[1]?.[specifier] || specifier;
+  resolverLogger.debug("map", "to", specifier);
+
   // Ignore built-in module and clear the context object if an error of type
   // ERR_NETWORK_IMPORT_DISALLOWED occurs, indicating that network requests are
   // not allowed for dynamic module imports.
   if (specifier.startsWith("node:") || isBuiltin(specifier)) {
+    resolverLogger.debug("build-in module, clear the context of", specifier);
     context.parentURL = undefined;
   }
 
@@ -83,11 +89,11 @@ export const resolve = async (
     context,
     defaultResolve
   ).catch((e) => {
-    console.debug(`resolve failed, fallback to /${specifier}`);
+    resolverLogger.debug(`resolve failed, fallback to /${specifier}`);
     return defaultResolve(`/${specifier}`, context, defaultResolve);
   });
 
-  console.debug("default resolved", resolvedURL, "of", specifier);
+  resolverLogger.log("resolved", resolvedURL, "of", specifier);
 
   // Now we have a remote module name with the protocol prefix https://,
   // because using http:// is not a secure practice. Let it crash.
@@ -95,7 +101,7 @@ export const resolve = async (
     // To improve performance, it is recommended to use caching to minimize repeat requests.
     if (cacheForHead.has(resolvedURL)) {
       const { url, ...rest } = cacheForHead.get(resolvedURL);
-      console.debug("redirect to", url, "from cache of", resolvedURL);
+      resolverLogger.debug("redirect to", url, "from cache of", resolvedURL);
       return { url, ...rest };
     }
 
@@ -105,7 +111,7 @@ export const resolve = async (
     if (status === 200) {
       // update cache
       cacheForHead.set(resolvedURL, { url, shortCircuit: true });
-      console.debug("redirect to", url, "from network of", resolvedURL);
+      resolverLogger.debug("redirect to", url, "from network of", resolvedURL);
       return cacheForHead.get(resolvedURL);
     }
   }
@@ -114,14 +120,14 @@ export const resolve = async (
 };
 
 export const load = async (url, context, defaultLoad) => {
-  console.debug("load", url, "of", context.parentURL);
+  loaderLogger.log("load", url, "of", context.parentURL);
   if (url.startsWith("https://")) {
     const cacheFileName = normalize(url);
     if (cacheFileName && existsSync(cacheFileName)) {
       const { format, responseURL } = JSON.parse(
         readFileSync(cacheFileName + ".meta.json", { encoding: "utf-8" })
       );
-      // console.log("load", url, format, responseURL);
+      loaderLogger.debug("load", url, format, responseURL);
       return {
         format,
         responseURL,
@@ -131,7 +137,7 @@ export const load = async (url, context, defaultLoad) => {
     }
 
     let { format, source } = await defaultLoad(url, context, defaultLoad).catch(
-      (e) => console.log("defaultLoad", e)
+      (e) => loaderLogger.error("defaultLoad", e)
     );
     let responseURL: string | undefined = undefined;
     if (
@@ -145,7 +151,7 @@ export const load = async (url, context, defaultLoad) => {
     }
 
     if (!format) {
-      console.log(
+      loaderLogger.log(
         "invalid source format",
         format,
         "of",
@@ -175,19 +181,3 @@ export const load = async (url, context, defaultLoad) => {
   }
   return defaultLoad(url, context, defaultLoad);
 };
-
-function importFromMap(specifier: string, context: Context) {
-  if (imports[specifier]) {
-    return imports[specifier];
-  }
-  if (context.parentURL) {
-    const [_, scopedImportsMap = []] =
-      Object.entries(scopes).filter(([prefix, _]) =>
-        context.parentURL.startsWith(prefix)
-      )[0] || [];
-    if (scopedImportsMap[specifier]) {
-      return scopedImportsMap[specifier];
-    }
-  }
-  return specifier;
-}
