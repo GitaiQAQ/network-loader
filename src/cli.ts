@@ -1,23 +1,29 @@
 #!/usr/bin/env node
 
-const childProcess = require("child_process");
+import { resolve } from "path";
 
-const args = process.argv.slice(2);
+import { spawn } from "child_process";
 
-function register() {
-  childProcess.spawn(
-    args[0],
-    [
-      "-r",
-      "./dist/suppress-experimental-warnings.js",
-      "--es-module-specifier-resolution=node",
-      "--experimental-network-imports",
-      "--loader=./dist/network-module-loader.js",
-    ].concat(args.slice(1)),
-    {
-      stdio: "inherit",
+const [command, _shimScript, ...args] = process.argv;
+
+process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ""} ${[
+  `-r ${resolve(_shimScript, "../suppress-warnings.js")}`,
+  `--es-module-specifier-resolution=node`,
+  `--experimental-network-imports`,
+  `--loader=@esbuild-kit/esm-loader`,
+  `--loader=${resolve(_shimScript, "../cache-loader.js")}`,
+].join(" ")}`;
+
+const proc = spawn(command, args, { stdio: "inherit" });
+
+proc.on("exit", function (code, signal) {
+  process.on("exit", function () {
+    if (signal) {
+      process.kill(process.pid, signal);
+    } else {
+      process.exitCode = code || undefined;
     }
-  );
-}
+  });
+});
 
-register();
+process.on("SIGINT", () => proc.kill("SIGINT"));

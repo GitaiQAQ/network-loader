@@ -2,6 +2,7 @@ import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname, resolve as _resolve } from "path";
 import { createHash } from "crypto";
 
+import { NODE_NETWORK_IMPORT_CACHE_DIR } from "./constants";
 import { fetch } from "./fetch";
 import { logger, getLogger } from "./logger";
 
@@ -12,7 +13,7 @@ type ModuleFormat = "module";
 
 type Resolved = {
   url: string;
-  format: ModuleFormat | undefined;
+  format?: ModuleFormat | undefined;
   shortCircuit?: boolean;
 };
 
@@ -20,9 +21,6 @@ type Context = {
   conditions: string[];
   parentURL: string | undefined;
 };
-
-const NODE_NETWORK_IMPORT_CACHE_DIR =
-  process.env["NODE_NETWORK_IMPORT_CACHE_DIR"] || ".cache";
 
 export const sha1 = (str) => createHash("sha1").update(str).digest("hex");
 
@@ -47,18 +45,42 @@ const cacheForHead = new Map();
 
 import { isBuiltin } from "module";
 
-import { imports, scopes } from "../package.json";
+let importMaps = { imports: {}, scopes: {} };
 
-const importMaps = Object.fromEntries([
-  [undefined, imports],
-  ...Object.entries(scopes || {}).map(([prefix, importMap]) => [
-    prefix,
-    { ...(imports || {}), ...(importMap || {}) },
-  ]),
-  ["", imports],
-]);
+function readImportMap() {
+  const { imports, scopes } = require(join(process.cwd(), 'import_map.json'));
 
-logger.debug("buildin importMap", importMaps);
+  importMaps = Object.fromEntries([
+    [undefined, imports],
+    ...Object.entries(scopes || {}).map(([prefix, importMap]) => [
+      prefix,
+      { ...(imports || {}), ...(importMap || {}) },
+    ]),
+    ["", imports],
+  ]);
+
+  logger.debug("buildin importMap", importMaps);
+}
+
+function isBareSpecifier(specifier) {
+  return specifier[0] && specifier[0] !== "/" && specifier[0] !== ".";
+}
+
+function isRelativeSpecifier(specifier) {
+  if (specifier[0] === ".") {
+    if (specifier.length === 1 || specifier[1] === "/") return true;
+    if (specifier[1] === ".") {
+      if (specifier.length === 2 || specifier[2] === "/") return true;
+    }
+  }
+  return false;
+}
+
+function shouldBeTreatedAsRelativeOrAbsolutePath(specifier) {
+  if (specifier === "") return false;
+  if (specifier[0] === "/") return true;
+  return isRelativeSpecifier(specifier);
+}
 
 // https://packup.deno.dev/guides/registry-cdn/
 // https://generator.jspm.io/#62JgYGBkDM0rySzJSU1hqKpwMNcz0jMEAD0gdcgXAA
@@ -68,6 +90,9 @@ export const resolve = async (
   defaultResolve
 ): Promise<Resolved> => {
   resolverLogger.log("start resolve", specifier, "from", context.parentURL);
+  if (defaultResolve.parentURL === undefined) {
+    readImportMap();
+  }
 
   specifier =
     Object.entries(importMaps).filter(([prefix]) =>
@@ -79,19 +104,25 @@ export const resolve = async (
   // ERR_NETWORK_IMPORT_DISALLOWED occurs, indicating that network requests are
   // not allowed for dynamic module imports.
   if (specifier.startsWith("node:") || isBuiltin(specifier)) {
-    resolverLogger.debug("build-in module, clear the context of", specifier);
-    context.parentURL = undefined;
+    return { url: specifier, shortCircuit: true };
   }
 
-  // Use the default resolver to handle relative paths.
-  const { url: resolvedURL, format } = await defaultResolve(
-    specifier,
-    context,
-    defaultResolve
-  ).catch((e) => {
-    resolverLogger.debug(`resolve failed, fallback to /${specifier}`);
-    return defaultResolve(`/${specifier}`, context, defaultResolve);
-  });
+  resolverLogger.log("default", "of", specifier);
+
+  let resolvedURL;
+  try {
+    resolvedURL = shouldBeTreatedAsRelativeOrAbsolutePath(specifier)
+      ? new URL(specifier, new URL(context.parentURL)).href
+      : new URL(specifier).href;
+  } catch (e) {
+    if (e.code === "ERR_INVALID_URL") {
+      resolvedURL = shouldBeTreatedAsRelativeOrAbsolutePath(`/${specifier}`)
+        ? new URL(`/${specifier}`, new URL(context.parentURL)).href
+        : new URL(`/${specifier}`).href;
+    } else {
+      throw e;
+    }
+  }
 
   resolverLogger.log("resolved", resolvedURL, "of", specifier);
 
@@ -116,7 +147,7 @@ export const resolve = async (
     }
   }
 
-  return { url: resolvedURL, format };
+  return { url: resolvedURL, shortCircuit: true };
 };
 
 export const load = async (url, context, defaultLoad) => {
