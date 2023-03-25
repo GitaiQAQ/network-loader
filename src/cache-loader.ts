@@ -4,7 +4,7 @@ import { createHash } from "crypto";
 
 import { NODE_NETWORK_IMPORT_CACHE_DIR } from "./constants";
 import { fetch } from "./fetch";
-import { logger, getLogger } from "./logger";
+import { logger, getLogger, noop } from "./logger";
 
 const resolverLogger = getLogger("[resolve]");
 const loaderLogger = getLogger("[load]");
@@ -47,8 +47,8 @@ import { isBuiltin } from "module";
 
 let importMaps = { imports: {}, scopes: {} };
 
-function readImportMap() {
-  const { imports, scopes } = require(join(process.cwd(), 'import_map.json'));
+let readImportMap = function () {
+  const { imports, scopes } = require(join(process.cwd(), "import_map.json"));
 
   importMaps = Object.fromEntries([
     [undefined, imports],
@@ -60,7 +60,9 @@ function readImportMap() {
   ]);
 
   logger.debug("buildin importMap", importMaps);
-}
+  // @ts-ignore
+  readImportMap = noop;
+};
 
 function isBareSpecifier(specifier) {
   return specifier[0] && specifier[0] !== "/" && specifier[0] !== ".";

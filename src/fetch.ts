@@ -33,6 +33,8 @@ function isRedirect(statusCode: number) {
 }
 
 class ERR_NETWORK_IMPORT_DISALLOWED extends Error {
+    code = 'ERR_NETWORK_IMPORT_DISALLOWED';
+    
     constructor(url: URL, extra?: Record<string, any>) {
         super(url.toString());
         extra && Object.assign(this, extra)

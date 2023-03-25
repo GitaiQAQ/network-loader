@@ -6,7 +6,7 @@
   "bin": "",
   "scripts": {
     "tests": "npm run build && ls examples/esm/ | xargs -I {} npm run test examples/esm/{} hello",
-    "test": "time node -r ./dist/suppress-warnings.js --es-module-specifier-resolution=node --experimental-network-imports --loader=./dist/cache-loader.js",
+    "test": "./dist/cli.js",
     "build": "npx esbuild src/cli.ts src/cache-loader.ts src/suppress-warnings.ts --bundle --outdir=dist --format=cjs --platform=node"
   },
   "keywords": [],

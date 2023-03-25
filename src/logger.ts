@@ -12,7 +12,7 @@
 
 //  0. You just DO WHAT THE FUCK YOU WANT TO.
 
-const noop = () => {};
+export const noop = () => {};
 
 const LOG_LEVELS = {
   debug: 0,
