@@ -1,29 +1,47 @@
 #!/usr/bin/env node
 
-import { resolve } from "path";
+if (
+  typeof require !== "undefined" &&
+  typeof module !== "undefined" &&
+  require.main === module
+) {
+  cli();
+} else if (typeof require !== "undefined") {
+  require('./suppress-warnings');
+}
 
-import { spawn } from "child_process";
+export * from './loader';
 
-const [command, _shimScript, ...args] = process.argv;
+async function cli() {
+  const { spawn } = await import("child_process");
 
-process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ""} ${[
-  `-r ${resolve(_shimScript, "../suppress-warnings.js")}`,
-  `--es-module-specifier-resolution=node`,
-  `--experimental-network-imports`,
-  `--loader=@esbuild-kit/esm-loader`,
-  `--loader=${resolve(_shimScript, "../cache-loader.js")}`,
-].join(" ")}`;
+  const [command, _shimScript, ...args] = process.argv;
 
-const proc = spawn(command, args, { stdio: "inherit" });
+  let hasTsSupport = false;
+  try {
+    require.resolve('@esbuild-kit/esm-loader');
+    hasTsSupport = true;
+  }catch(e) {}
 
-proc.on("exit", function (code, signal) {
-  process.on("exit", function () {
-    if (signal) {
-      process.kill(process.pid, signal);
-    } else {
-      process.exitCode = code || undefined;
-    }
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ""} ${[
+    `-r ${_shimScript}`,
+    `--es-module-specifier-resolution=node`,
+    `--experimental-network-imports`,
+    hasTsSupport ? `--loader=@esbuild-kit/esm-loader` : '',
+    `--loader=${_shimScript}`,
+  ].join(" ")}`;
+
+  const proc = spawn(command, args, { stdio: "inherit" });
+
+  proc.on("exit", function (code, signal) {
+    process.on("exit", function () {
+      if (signal) {
+        process.kill(process.pid, signal);
+      } else {
+        process.exitCode = code || undefined;
+      }
+    });
   });
-});
 
-process.on("SIGINT", () => proc.kill("SIGINT"));
+  process.on("SIGINT", () => proc.kill("SIGINT"));
+}
