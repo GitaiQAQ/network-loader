@@ -1,19 +1,26 @@
 {
-  "name": "remote-loader",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "rtex",
+  "version": "0.0.2-alpha.1",
+  "description": "A TypeScript executor with remote CDN cache for efficient dependency management.",
+  "main": "dist/suppress-warnings.js",
+  "module": "dist/loader.js",
+  "bin": "dist/cli.js",
   "scripts": {
-    "test": "time node -r ./dist/suppress-experimental-warnings.js --es-module-specifier-resolution=node --experimental-network-imports --loader=./dist/network-module-loader.js",
-    "build": "npx esbuild src/network-module-loader.ts src/suppress-experimental-warnings.ts --bundle --outdir=dist --format=cjs --platform=node"
+    "tests": "npm run build && ls examples/esm/ | xargs -I {} npm run test examples/esm/{} hello",
+    "test": "./dist/cli.js",
+    "build": "npx esbuild src/cli.ts src/loader.ts src/suppress-warnings.ts --minify --bundle --outdir=dist --format=cjs --platform=node"
   },
+  "files": [
+    "dist"
+  ],
   "keywords": [],
-  "author": "",
+  "author": "Gitai<i@gitai.me>",
   "license": "MIT",
-  "devDependencies": {
-    "@types/node": "^18.15.3"
-  },
   "dependencies": {
+    "@esbuild-kit/esm-loader": "^2.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.3",
     "esbuild": "^0.17.11"
   }
 }
