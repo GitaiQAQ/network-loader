@@ -1,6 +1,6 @@
 {
   "name": "rtex",
-  "version": "0.0.1-alpha.3",
+  "version": "0.0.2-alpha.1",
   "description": "A TypeScript executor with remote CDN cache for efficient dependency management.",
   "main": "dist/suppress-warnings.js",
   "module": "dist/loader.js",
@@ -16,9 +16,11 @@
   "keywords": [],
   "author": "Gitai<i@gitai.me>",
   "license": "MIT",
+  "dependencies": {
+    "@esbuild-kit/esm-loader": "^2.5.5"
+  },
   "devDependencies": {
     "@types/node": "^18.15.3",
     "esbuild": "^0.17.11"
-  },
-  "optionalDependencies": {}
+  }
 }

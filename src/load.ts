@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { getLogger } from "./logger";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve as _resolve } from "node:path";
 import { NODE_NETWORK_IMPORT_CACHE_DIR } from "./constants";
 import { createHash } from "node:crypto";
 import { Context } from "./resolve";

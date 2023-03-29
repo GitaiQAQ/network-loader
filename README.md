@@ -8,9 +8,7 @@
 ### ESM
 
 ```shell
-$ curl https://unpkg.com/rtex/dist/cli.js -o rtex 
-$ chmod +x rtex
-$ rtex ./examples/esm/zx.mjs
+$ npx rtex ./examples/esm/zx.mjs
 $ echo "world"
 world
 ```
@@ -18,11 +16,7 @@ world
 ### TS
 
 ```shell
-$ npm install -g @esbuild-kit/esm-loader
-$ curl https://unpkg.com/rtex@0.0.1-alpha.1/dist/cli.js -o rtex 
-$ chmod +x rtex
-$ npm link @esbuild-kit/esm-loader
-$ rtex ./examples/ts/ng-cli.ts
+$ npx rtex ./examples/ts/ng-cli.ts
 $ ... <command>
 ━━━ acl ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

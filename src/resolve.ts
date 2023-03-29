@@ -1,4 +1,4 @@
-import { readFile, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFile, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { fetch } from "./fetch";
@@ -51,6 +51,7 @@ const { importMaps, lockFile } = (function () {
 
   let lockFile: LockFile = {};
   try {
+    mkdirSync(NODE_NETWORK_IMPORT_CACHE_DIR);
     lockFile = JSON.parse(
       readFileSync(
         join(NODE_NETWORK_IMPORT_CACHE_DIR, "rx-lock.json")
